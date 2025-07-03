@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 __author__     = "Jan Kogut"
@@ -222,8 +222,8 @@ def addHostWithHostvars(znodeDict):
   
     zk = zkStartRw()
 
-    groupName      = znodeDict.keys()[0]
-    hostName       = znodeDict[groupName].keys()[0]
+    groupName      = list(znodeDict.keys())[0]
+    hostName       = list(znodeDict[groupName].keys())[0]
     groupPath      = "{0}/groups/{1}".format(cfg.aPath, groupName)
     hostPath       = "{0}/hosts/{1}".format(cfg.aPath, hostName)
     hostGroupPath  = "{0}/{1}".format(groupPath, hostName)
@@ -384,8 +384,8 @@ def updateZnode(znodeDict):
     
     zk = zkStartRw()
     
-    groupName   = znodeDict.keys()[0]
-    hostName    = znodeDict[groupName].keys()[0]
+    groupName   = list(znodeDict.keys())[0]
+    hostName    = list(znodeDict[groupName].keys())[0]
     hostPath    = "{0}/hosts/{1}".format(cfg.aPath, hostName)
     hostVarList = zk.get_children(hostPath)
 
@@ -455,7 +455,7 @@ def renameZnode(znodeRenameStringSplited):
         ## find a group where host resides and create newPath in that group
         for child in zk.get_children('{}/groups'.format(cfg.aPath)):
             if oldName in zk.get_children('{0}/groups/{1}'.format(cfg.aPath, child)):
-                print 'found ==> {0}/groups/{1}/{2}'.format(cfg.aPath, child, oldName)
+                print(('found ==> {0}/groups/{1}/{2}'.format(cfg.aPath, child, oldName)))
                 tmpOldHostGroupPath = '{0}/groups/{1}/{2}'.format(cfg.aPath, child, oldName)
                 tmpNewHostGroupPath = '{0}/groups/{1}/{2}'.format(cfg.aPath, child, newName)
                 zk.ensure_path(tmpNewHostGroupPath)
@@ -734,47 +734,47 @@ def main():
    
     ## options for ansible only 
     if oParser()['ansibleHost'] is not None:
-        print json.dumps(ansibleHostAccess(oParser()['ansibleHost']))
+        print(json.dumps(ansibleHostAccess(oParser()['ansibleHost'])))
 
     if oParser()['inventoryMode'] == 'ansible':
-        print json.dumps(ansibleInventoryDump())
+        print(json.dumps(ansibleInventoryDump()))
 
     ## options for users
     if oParser()['inventoryMode'] == 'all':
-        print json.dumps(inventoryDump('all'))
+        print(json.dumps(inventoryDump('all')))
 
     if oParser()['inventoryMode'] == 'groups':
-        print json.dumps(inventoryDump('groups'))
+        print(json.dumps(inventoryDump('groups')))
 
     if oParser()['inventoryMode'] == 'hosts':
-        print json.dumps(inventoryDump('hosts'))
+        print(json.dumps(inventoryDump('hosts')))
 
     if oParser()['addMode'] is not None:
         znodeDict = splitZnodeVarString(oParser()['addMode'])
-        print addHostWithHostvars(znodeDict)
+        print(addHostWithHostvars(znodeDict))
 
     if oParser()['groupMode'] is not None:
         znodeStringSplited = splitZnodeString(oParser()['groupMode'])
-        print addHostToGroup(znodeStringSplited)
+        print(addHostToGroup(znodeStringSplited))
  
     if oParser()['updateMode'] is not None:
         znodeDict = splitZnodeVarString(oParser()['updateMode'])
-        print updateZnode(znodeDict)
+        print(updateZnode(znodeDict))
         
     if oParser()['deleteMode'] is not None:
         znodeStringSplited = splitZnodeString(oParser()['deleteMode'])
-        print deleteZnodeRecur(znodeStringSplited)
+        print(deleteZnodeRecur(znodeStringSplited))
 
     if oParser()['renameMode'] is not None:
         znodeRenameStringSplited = splitRenameZnodeString(oParser()['renameMode'])
         if type(znodeRenameStringSplited) is list:
-            print renameZnode(znodeRenameStringSplited)
+            print(renameZnode(znodeRenameStringSplited))
         else:
-            print znodeRenameStringSplited
+            print(znodeRenameStringSplited)
             
     if oParser()['showMode'] is not None:
         znodeStringSplited = splitZnodeString(oParser()['showMode'])
-        print json.dumps(showHostVars(znodeStringSplited))
+        print(json.dumps(showHostVars(znodeStringSplited)))
                                   
         
 if __name__ == "__main__":
