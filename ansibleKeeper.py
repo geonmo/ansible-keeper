@@ -10,6 +10,8 @@ __status__     = "Beta"
 
 
 import json
+import toml
+import configparser
 from optparse import OptionParser,OptionGroup
 from kazoo.client import KazooClient
 
@@ -25,7 +27,7 @@ class OurConfig(object):
 
 cfg = OurConfig()
 
-cfg.zkServers  = 'localhost:2181'
+cfg.zkServers  = 'con1:2181,con2:2181,con3:2181'
 cfg.aPath      = '/ansible-test'
 
 #################################################
@@ -57,6 +59,10 @@ def oParser():
                       help="inventory mode: groups|all|ansible dumps inventory in json format from zookeeper")
     parser.add_option("--host", nargs = 1,
                       help="ansible compliant option for hostvars access: --host hostname")
+    parser.add_option("--import-toml", nargs=1, help="import inventory from TOML file")
+    parser.add_option("--export-toml", nargs=1, help="export inventory to TOML file")
+    parser.add_option("--import-ini", nargs=1, help="import inventory from INI file")
+    parser.add_option("--export-ini", nargs=1, help="export inventory to INI file")
 
     group = OptionGroup(parser, "Example usage",
                         "ansibleKeeper.py -A flink:flink-master01,lan_ip:10.1.1.1")
@@ -66,13 +72,15 @@ def oParser():
     (opts, args) = parser.parse_args()
     
     
-    if (opts.A or opts.G or opts.D or opts.U or opts.R or opts.S or opts.I or opts.host) == None:
+    if (opts.A or opts.G or opts.D or opts.U or opts.R or opts.S or opts.I or opts.host or opts.import_toml or opts.export_toml or opts.import_ini or opts.export_ini) == None:
 
         parser.print_help()
         exit(-1)
         
     return {'addMode':opts.A, 'groupMode':opts.G, 'deleteMode':opts.D, 'updateMode':opts.U,
-            'renameMode':opts.R, 'showMode':opts.S, 'inventoryMode':opts.I, 'ansibleHost':opts.host}
+            'renameMode':opts.R, 'showMode':opts.S, 'inventoryMode':opts.I, 'ansibleHost':opts.host,
+            'importToml': opts.import_toml, 'exportToml': opts.export_toml,
+            'importIni': opts.import_ini, 'exportIni': opts.export_ini}
 
 
 def zkStartRo():
@@ -190,7 +198,7 @@ def splitRenameZnodeString(renameZnodeString):
     }
 
     ## check if len of splited list is not 3
-    if len(renameZnodeString.split(':')) is not 3:
+    if len(renameZnodeString.split(':')) != 3:
        return ArgError('NO_VALID_KEYWORDS_NUMBER', ERROR_MSGS['NO_VALID_KEYWORDS_NUMBER']).format()
     
     if 'hosts:' in renameZnodeString:
@@ -719,6 +727,114 @@ def ansibleHostAccess(hostName):
         zk.stop()   
         
     
+def exportToToml(filePath):
+    '''
+    Export inventory to TOML file.
+    '''
+    inventory = ansibleInventoryDump()
+    with open(filePath, 'w') as f:
+        toml.dump(inventory, f)
+    return "Exported inventory to {}".format(filePath)
+
+def importFromToml(filePath):
+    '''
+    Import inventory from TOML file.
+    '''
+    try:
+        with open(filePath, 'r') as f:
+            inventory = toml.load(f)
+    except (IOError, toml.TomlDecodeError) as e:
+        return "Error reading TOML file: {}".format(e)
+
+    zk = zkStartRw()
+    try:
+        for group, data in inventory.items():
+            if group == '_meta':
+                continue
+            
+            groupPath = "{}/groups/{}".format(cfg.aPath, group)
+            zk.ensure_path(groupPath)
+
+            for host in data.get('hosts', []):
+                hostPath = "{}/hosts/{}".format(cfg.aPath, host)
+                zk.ensure_path(hostPath)
+                
+                hostGroupPath = "{}/{}".format(groupPath, host)
+                zk.ensure_path(hostGroupPath)
+
+                if '_meta' in inventory and 'hostvars' in inventory['_meta']:
+                    hostvars = inventory['_meta']['hostvars'].get(host, {})
+                    for var, val in hostvars.items():
+                        varPath = "{}/{}".format(hostPath, var)
+                        zk.create(varPath, str(val).encode('utf-8'), makepath=True)
+
+    finally:
+        zk.stop()
+    return "Imported inventory from {}".format(filePath)
+
+
+def exportToIni(filePath):
+    '''
+    Export inventory to INI file.
+    '''
+    inventory = ansibleInventoryDump()
+    config = configparser.ConfigParser(allow_no_value=True)
+
+    for group, data in inventory.items():
+        if group == '_meta':
+            continue
+        
+        config.add_section(group)
+        for host in data.get('hosts', []):
+            config.set(group, host, None)
+
+    if '_meta' in inventory and 'hostvars' in inventory['_meta']:
+        for host, hostvars in inventory['_meta']['hostvars'].items():
+            section_name = "hostvars:{}".format(host)
+            config.add_section(section_name)
+            for var, val in hostvars.items():
+                config.set(section_name, var, val)
+
+    with open(filePath, 'w') as f:
+        config.write(f)
+    return "Exported inventory to {}".format(filePath)
+
+def importFromIni(filePath):
+    '''
+    Import inventory from INI file.
+    '''
+    config = configparser.ConfigParser(allow_no_value=True)
+    try:
+        config.read(filePath)
+    except (IOError, configparser.Error) as e:
+        return "Error reading INI file: {}".format(e)
+
+    zk = zkStartRw()
+    try:
+        for section in config.sections():
+            if section.startswith('hostvars:'):
+                continue
+
+            group = section
+            groupPath = "{}/groups/{}".format(cfg.aPath, group)
+            zk.ensure_path(groupPath)
+
+            for host in config.options(section):
+                hostPath = "{}/hosts/{}".format(cfg.aPath, host)
+                zk.ensure_path(hostPath)
+                
+                hostGroupPath = "{}/{}".format(groupPath, host)
+                zk.ensure_path(hostGroupPath)
+
+                hostvars_section = "hostvars:{}".format(host)
+                if config.has_section(hostvars_section):
+                    for var, val in config.items(hostvars_section):
+                        varPath = "{}/{}".format(hostPath, var)
+                        zk.create(varPath, str(val).encode('utf-8'), makepath=True)
+    finally:
+        zk.stop()
+    return "Imported inventory from {}".format(filePath)
+    
 def main():
     '''
     Main logic
@@ -775,6 +891,18 @@ def main():
     if oParser()['showMode'] is not None:
         znodeStringSplited = splitZnodeString(oParser()['showMode'])
         print(json.dumps(showHostVars(znodeStringSplited)))
+
+    if oParser()['importToml'] is not None:
+        print(importFromToml(oParser()['importToml']))
+
+    if oParser()['exportToml'] is not None:
+        print(exportToToml(oParser()['exportToml']))
+
+    if oParser()['importIni'] is not None:
+        print(importFromIni(oParser()['importIni']))
+
+    if oParser()['exportIni'] is not None:
+        print(exportToIni(oParser()['exportIni']))
                                   
         
 if __name__ == "__main__":
